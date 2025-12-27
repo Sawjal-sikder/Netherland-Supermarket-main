@@ -15,6 +15,8 @@ from datetime import datetime
 import time
 import logging
 import random
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class JumboScraper(BaseScraper):
@@ -52,9 +54,37 @@ class JumboScraper(BaseScraper):
             'i18n_redirected': 'nl-NL',
         }
         
-        self.page_size = 200  # Optimal page size - API max limit appears to be 200
+        self.page_size = 50  # Reduced page size for more reliable requests
         self.max_retries = 3  # Maximum number of retry attempts
         self.base_retry_delay = 5  # Base delay between retries in seconds
+        
+        # Configure session with retry strategy and connection pooling
+        self._configure_session()
+    
+    def _configure_session(self):
+        """Configure session with connection pooling and retry logic"""
+        # Define retry strategy for connection issues
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST"],
+            raise_on_status=False
+        )
+        
+        # Create adapter with retry strategy and connection pooling
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20,
+            pool_block=False
+        )
+        
+        # Mount adapter to session
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
+        self.logger.info("Session configured with connection pooling and retry strategy")
     
     def create_search_payload(self, offset=0, limit=None):
         """Create GraphQL payload for product search"""
@@ -219,14 +249,20 @@ class JumboScraper(BaseScraper):
         
         for attempt in range(self.max_retries):
             try:
-                self.logger.debug(f"Attempt {attempt + 1}/{self.max_retries} for offset {offset}")
+                self.logger.info(f"Attempt {attempt + 1}/{self.max_retries} for offset {offset}")
+                
+                # Add a small delay before each attempt to avoid overwhelming the server
+                if attempt > 0:
+                    delay = self.base_retry_delay * attempt + random.uniform(1, 3)
+                    self.logger.info(f"Waiting {delay:.1f}s before retry...")
+                    time.sleep(delay)
                 
                 response = self.session.post(
                     self.graphql_url,
                     headers=self.headers,
                     cookies=self.cookies,
                     json=payload,
-                    timeout=60  # Increased timeout to 60 seconds
+                    timeout=90  # Increased timeout to 90 seconds
                 )
                 
                 if response.status_code == 200:
@@ -257,16 +293,30 @@ class JumboScraper(BaseScraper):
                     return None
                     
             except Exception as e:
-                self.logger.error(f"Error fetching page at offset {offset} (attempt {attempt + 1}/{self.max_retries}): {e}")
+                error_type = type(e).__name__
+                self.logger.error(f"Error fetching page at offset {offset} (attempt {attempt + 1}/{self.max_retries}): {error_type} - {e}")
                 
-                if attempt < self.max_retries - 1:
-                    # Exponential backoff with jitter
-                    delay = self.base_retry_delay * (2 ** attempt) + random.uniform(0, 2)
-                    self.logger.info(f"Retrying after {delay:.1f} seconds...")
-                    time.sleep(delay)
+                # Check if it's a timeout error
+                if 'timeout' in str(e).lower() or 'timed out' in str(e).lower():
+                    self.logger.warning(f"Timeout detected. This may indicate network issues or the site is blocking requests.")
+                    
+                    # For timeout errors, increase delay significantly
+                    if attempt < self.max_retries - 1:
+                        delay = self.base_retry_delay * (3 ** attempt) + random.uniform(2, 5)
+                        self.logger.info(f"Waiting {delay:.1f} seconds before retry...")
+                        time.sleep(delay)
+                    else:
+                        self.logger.error(f"All retry attempts exhausted for offset {offset}. Consider using a VPN or checking network connectivity.")
+                        return None
                 else:
-                    self.logger.error(f"All retry attempts exhausted for offset {offset}")
-                    return None
+                    # For other errors, use normal exponential backoff
+                    if attempt < self.max_retries - 1:
+                        delay = self.base_retry_delay * (2 ** attempt) + random.uniform(0, 2)
+                        self.logger.info(f"Retrying after {delay:.1f} seconds...")
+                        time.sleep(delay)
+                    else:
+                        self.logger.error(f"All retry attempts exhausted for offset {offset}")
+                        return None
         
         return None
     
@@ -485,8 +535,36 @@ class JumboScraper(BaseScraper):
             self.logger.debug(f"Problem product data: {product_data}")
             return None
     
+    def test_connection(self):
+        """Test connection to Jumbo API before scraping"""
+        try:
+            self.logger.info("Testing connection to Jumbo API...")
+            response = self.session.get(
+                "https://www.jumbo.com",
+                headers={
+                    'User-Agent': self.headers['user-agent'],
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                self.logger.info("✓ Successfully connected to Jumbo website")
+                return True
+            else:
+                self.logger.warning(f"Connection test returned status {response.status_code}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Connection test failed: {e}")
+            self.logger.warning("This may indicate network issues, VPN blocking, or IP restrictions")
+            return False
+    
     def scrape_products(self):
         """Main method to scrape all products"""
+        # Test connection first
+        if not self.test_connection():
+            self.logger.warning("Connection test failed, but attempting to proceed anyway...")
+        
         all_products = []
         offset = 0
         
