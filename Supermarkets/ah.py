@@ -36,6 +36,27 @@ class AHScraper(BaseScraper):
         super().__init__(db_manager, "AH")
         self.cookies_initialized = False
         self.driver = None
+        # Setup proper headers for API requests
+        self._setup_headers()
+
+    def _setup_headers(self):
+        """Setup headers to mimic browser requests and avoid 403 errors"""
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9,nl;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.ah.nl/producten',
+            'Origin': 'https://www.ah.nl',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="143", "Google Chrome";v="143"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
 
     def scrape_products(self) -> List[Product]:
         """Scrape products using AH API"""
@@ -73,65 +94,128 @@ class AHScraper(BaseScraper):
         try:
             self.logger.info("Initializing cookies with Selenium")
             
-            # Setup Chrome options
+            # Setup Chrome options to better mimic real browser
             chrome_options = Options()
-            chrome_options.add_argument('--headless')  # Run in background
+            
+            # Try non-headless mode for better success (comment out for production)
+            # chrome_options.add_argument('--headless=new')  # Use new headless mode
+            self.logger.warning("Running in NON-HEADLESS mode for better success rate. Browser window will be visible.")
+            
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
             chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_argument('--disable-web-security')
+            chrome_options.add_argument('--disable-features=IsolateOrigins,site-per-process')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('--start-maximized')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--disable-software-rasterizer')
+            chrome_options.add_argument('--disable-extensions')
+            chrome_options.add_argument('--dns-prefetch-disable')
+            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36')
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
+            # Add prefs to appear more like regular browser
+            chrome_options.add_experimental_option("prefs", {
+                "profile.default_content_setting_values.notifications": 2,
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
+                "download.prompt_for_download": False,
+                "download.directory_upgrade": True,
+                "safebrowsing.enabled": True
+            })
             
             # Initialize driver
             try:
                 # Use webdriver-manager to automatically get the correct ChromeDriver
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                
+                # Execute CDP command to hide webdriver property
+                self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                    "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36'
+                })
+                
+                # More comprehensive stealth script
+                self.driver.execute_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en', 'nl']});
+                    window.chrome = {runtime: {}};
+                    Object.defineProperty(navigator, 'permissions', {
+                        get: () => ({
+                            query: () => Promise.resolve({state: 'granted'})
+                        })
+                    });
+                """)
+                
             except WebDriverException as e:
                 self.logger.error(f"Failed to initialize Chrome driver: {e}")
                 self.logger.info("Make sure ChromeDriver is installed and in PATH")
                 return False
             
-            # Visit AH homepage
+            # Visit AH homepage first
+            self.logger.info("Visiting AH homepage...")
             self.driver.get(self.BASE_URL)
             
-            # Wait for page to load
-            WebDriverWait(self.driver, 10).until(
+            # Wait for initial page load
+            WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Try to handle cookie consent popup
+            # Try to handle cookie consent popup with more attempts
             try:
-                # Look for common cookie consent button texts
-                cookie_buttons = [
-                    "//button[contains(text(), 'Accepteren')]",
-                    "//button[contains(text(), 'Accept')]",
-                    "//button[contains(text(), 'Akkoord')]",
-                    "//button[contains(@class, 'cookie')]",
-                    "//button[contains(@id, 'cookie')]"
+                # Wait a bit for popup to appear
+                time.sleep(2)
+                
+                # Look for common cookie consent button texts and selectors
+                cookie_selectors = [
+                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accepteren')]",
+                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept')]",
+                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'akkoord')]",
+                    "//button[contains(@class, 'cookie') and contains(@class, 'accept')]",
+                    "//button[contains(@id, 'accept')]",
+                    "//button[@data-testid='cookie-accept-all']",
+                    "//a[contains(@class, 'consent')]//button"
                 ]
                 
-                for button_xpath in cookie_buttons:
+                cookie_clicked = False
+                for selector in cookie_selectors:
                     try:
-                        cookie_button = WebDriverWait(self.driver, 5).until(
-                            EC.element_to_be_clickable((By.XPATH, button_xpath))
+                        cookie_button = WebDriverWait(self.driver, 3).until(
+                            EC.element_to_be_clickable((By.XPATH, selector))
                         )
                         cookie_button.click()
-                        self.logger.info("Clicked cookie consent button")
-                        time.sleep(2)  # Wait for consent to be processed
+                        self.logger.info(f"Clicked cookie consent button using selector: {selector[:50]}...")
+                        time.sleep(2)
+                        cookie_clicked = True
                         break
                     except TimeoutException:
                         continue
+                
+                if not cookie_clicked:
+                    self.logger.warning("Could not find or click cookie consent button - continuing anyway")
                         
             except Exception as e:
                 self.logger.warning(f"Could not handle cookie consent: {e}")
             
             # Visit products page to ensure full session
             self.driver.get(f"{self.BASE_URL}/producten")
-            time.sleep(3)  # Wait for page to fully load
+            time.sleep(5)  # Wait for page to fully load and JS to execute
+            
+            # Scroll page to trigger any lazy loading or tracking
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+            time.sleep(2)
             
             # Extract cookies from Selenium and add to requests session
             selenium_cookies = self.driver.get_cookies()
+            
+            if not selenium_cookies:
+                self.logger.warning("No cookies extracted from Selenium session!")
+                self.logger.info("This may cause 403 errors. The site might be blocking automation.")
+            
+            # Clear existing cookies first
+            self.session.cookies.clear()
             
             for cookie in selenium_cookies:
                 self.session.cookies.set(
@@ -142,9 +226,20 @@ class AHScraper(BaseScraper):
                     secure=cookie.get('secure', False)
                 )
             
-            
-            
             self.logger.info(f"Transferred {len(selenium_cookies)} cookies from Selenium to requests")
+            
+            # Log all cookies for debugging
+            if selenium_cookies:
+                cookie_names = [c['name'] for c in selenium_cookies]
+                self.logger.debug(f"Cookie names: {', '.join(cookie_names)}")
+            
+            # Log key cookies for debugging
+            important_cookies = ['anonymous-consents', 'OptanonConsent', 'OptanonAlertBoxClosed', 'ah-session']
+            for cookie_name in important_cookies:
+                if cookie_name in self.session.cookies:
+                    self.logger.debug(f"Found important cookie: {cookie_name}")
+                else:
+                    self.logger.debug(f"Missing cookie: {cookie_name}")
                 
             
             self.cookies_initialized = True
@@ -240,10 +335,12 @@ class AHScraper(BaseScraper):
         products = []
         page = 1
         page_size = 300  # Using the page size from the sample response
+        
+        # Update referer to the specific category page
+        category_url = category.get('url', f"{self.BASE_URL}/producten")
         self.session.headers.update({
-            'accept': 'application/json',
-            'accept-language': 'en-US,en;q=0.8',
-            'content-type': 'application/json',
+            'Referer': category_url,
+            'Content-Type': 'application/json',
         })
         
         while True:
@@ -253,12 +350,23 @@ class AHScraper(BaseScraper):
                           f"&taxonomySlug={category['slug']}&taxonomy={category['taxonomy_id']}")
                 
                 self.logger.info(f"Fetching page {page} for category {category['name']}")
+                self.logger.debug(f"API URL: {api_url}")
                 
                 response = self.session.get(api_url, timeout=30)
                 
                 # Handle different response codes
                 if response.status_code == 403:
                     self.logger.error(f"403 Forbidden - cookies may have expired or API access denied")
+                    self.logger.debug(f"Response headers: {dict(response.headers)}")
+                    self.logger.debug(f"Request headers: {dict(self.session.headers)}")
+                    
+                    # Try to reinitialize cookies once
+                    if not hasattr(self, '_reinit_attempted'):
+                        self.logger.info("Attempting to reinitialize cookies...")
+                        self._reinit_attempted = True
+                        if self._initialize_cookies():
+                            self.logger.info("Cookies reinitialized, retrying request...")
+                            continue
                     break
                 elif response.status_code == 429:
                     self.logger.warning(f"Rate limited, waiting 5 seconds...")
