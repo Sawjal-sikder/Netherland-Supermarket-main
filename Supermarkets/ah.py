@@ -171,39 +171,128 @@ class AHScraper(BaseScraper):
             
             # Try to handle cookie consent popup with more attempts
             try:
-                # Wait a bit for popup to appear
-                time.sleep(2)
+                # Wait longer for popup to appear (OneTrust can be slow)
+                time.sleep(5)
                 
-                # Look for common cookie consent button texts and selectors
-                cookie_selectors = [
-                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accepteren')]",
-                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'accept')]",
-                    "//button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'akkoord')]",
-                    "//button[contains(@class, 'cookie') and contains(@class, 'accept')]",
-                    "//button[contains(@id, 'accept')]",
-                    "//button[@data-testid='cookie-accept-all']",
-                    "//a[contains(@class, 'consent')]//button"
+                # Try multiple strategies to find and click the consent button
+                cookie_clicked = False
+                
+                # Strategy 1: Look for OneTrust cookie consent buttons (most common)
+                onetrust_selectors = [
+                    "//button[@id='onetrust-accept-btn-handler']",  # OneTrust accept all button
+                    "//button[contains(@id, 'accept-recommended-btn')]",  # OneTrust recommended
+                    "//button[@id='accept-all-cookies']",
+                    "//button[contains(@class, 'onetrust-close-btn-handler')]",
+                    "//button[contains(@class, 'cookie-accept-all')]",
                 ]
                 
-                cookie_clicked = False
-                for selector in cookie_selectors:
+                for selector in onetrust_selectors:
                     try:
-                        cookie_button = WebDriverWait(self.driver, 3).until(
+                        cookie_button = WebDriverWait(self.driver, 5).until(
                             EC.element_to_be_clickable((By.XPATH, selector))
                         )
-                        cookie_button.click()
-                        self.logger.info(f"Clicked cookie consent button using selector: {selector[:50]}...")
-                        time.sleep(2)
+                        # Try to scroll to the element first
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", cookie_button)
+                        time.sleep(1)
+                        # Try regular click first
+                        try:
+                            cookie_button.click()
+                        except:
+                            # If regular click fails, try JavaScript click
+                            self.driver.execute_script("arguments[0].click();", cookie_button)
+                        
+                        self.logger.info(f"✓ Clicked cookie consent button: {selector}")
+                        time.sleep(3)  # Wait for cookies to be set
                         cookie_clicked = True
                         break
                     except TimeoutException:
                         continue
+                    except Exception as e:
+                        self.logger.debug(f"Failed to click {selector}: {e}")
+                        continue
+                
+                # Strategy 2: Look for text-based buttons if OneTrust selectors don't work
+                if not cookie_clicked:
+                    text_selectors = [
+                        "//button[contains(text(), 'Accepteren')]",
+                        "//button[contains(text(), 'Akkoord')]",
+                        "//button[contains(text(), 'Accept')]",
+                        "//a[contains(text(), 'Accepteren')]",
+                        "//a[contains(text(), 'Akkoord')]",
+                    ]
+                    
+                    for selector in text_selectors:
+                        try:
+                            cookie_button = WebDriverWait(self.driver, 2).until(
+                                EC.element_to_be_clickable((By.XPATH, selector))
+                            )
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", cookie_button)
+                            time.sleep(1)
+                            try:
+                                cookie_button.click()
+                            except:
+                                self.driver.execute_script("arguments[0].click();", cookie_button)
+                            
+                            self.logger.info(f"✓ Clicked cookie consent button: {selector}")
+                            time.sleep(3)
+                            cookie_clicked = True
+                            break
+                        except:
+                            continue
+                
+                # Strategy 3: Try to find any button in a cookie banner
+                if not cookie_clicked:
+                    try:
+                        # Look for common cookie banner containers
+                        banner_selectors = [
+                            "//div[@id='onetrust-banner-sdk']//button",
+                            "//div[contains(@class, 'cookie-banner')]//button",
+                            "//div[contains(@class, 'consent-banner')]//button",
+                        ]
+                        
+                        for banner_selector in banner_selectors:
+                            try:
+                                buttons = self.driver.find_elements(By.XPATH, banner_selector)
+                                if buttons:
+                                    # Click the first button (usually "Accept All")
+                                    button = buttons[0]
+                                    self.driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                                    time.sleep(1)
+                                    self.driver.execute_script("arguments[0].click();", button)
+                                    self.logger.info(f"✓ Clicked cookie button in banner: {banner_selector}")
+                                    time.sleep(3)
+                                    cookie_clicked = True
+                                    break
+                            except:
+                                continue
+                    except:
+                        pass
                 
                 if not cookie_clicked:
-                    self.logger.warning("Could not find or click cookie consent button - continuing anyway")
+                    self.logger.warning("⚠ Could not find or click cookie consent button")
+                    self.logger.info("Attempting to set consent cookies manually...")
+                    
+                    # Manually set consent cookies if we can't click the button
+                    try:
+                        # Set OneTrust consent cookies manually
+                        self.driver.add_cookie({
+                            'name': 'OptanonAlertBoxClosed',
+                            'value': '2025-12-27T09:00:00.000Z',
+                            'domain': '.ah.nl',
+                            'path': '/'
+                        })
+                        self.driver.add_cookie({
+                            'name': 'OptanonConsent',
+                            'value': 'isIABGlobal=false&datestamp=Fri+Dec+27+2025+09:00:00+GMT+0000&version=6.33.0&hosts=&consentId=&interactionCount=1&landingPath=NotLandingPage&groups=C0001:1,C0002:1,C0003:1,C0004:1&AwaitingReconsent=false',
+                            'domain': '.ah.nl',
+                            'path': '/'
+                        })
+                        self.logger.info("✓ Manually set consent cookies")
+                    except Exception as e:
+                        self.logger.warning(f"Could not set consent cookies manually: {e}")
                         
             except Exception as e:
-                self.logger.warning(f"Could not handle cookie consent: {e}")
+                self.logger.warning(f"Error handling cookie consent: {e}")
             
             # Visit products page to ensure full session
             self.driver.get(f"{self.BASE_URL}/producten")
@@ -234,6 +323,20 @@ class AHScraper(BaseScraper):
                 """)
             except:
                 pass
+            
+            # Also visit sitemap page to ensure we have access to it
+            try:
+                self.logger.info("Visiting sitemap to ensure access...")
+                self.driver.get(self.SITEMAP_URL)
+                time.sleep(3)
+                
+                # Check if we can access it
+                if "403" not in self.driver.page_source and "Forbidden" not in self.driver.page_source:
+                    self.logger.info("✓ Sitemap is accessible")
+                else:
+                    self.logger.warning("⚠ Sitemap may be blocked (403 detected in page)")
+            except Exception as e:
+                self.logger.warning(f"Could not visit sitemap: {e}")
             
             # Extract cookies from Selenium and add to requests session
             selenium_cookies = self.driver.get_cookies()
@@ -302,7 +405,19 @@ class AHScraper(BaseScraper):
     def _fetch_categories(self) -> List[Dict[str, Any]]:
         """Fetch categories from sitemap"""
         try:
-            response = self.session.get(self.SITEMAP_URL, timeout=30)
+            # Update headers for sitemap request
+            headers = self.session.headers.copy()
+            headers.update({
+                'Referer': f'{self.BASE_URL}/',
+                'Accept': 'application/xml, text/xml, */*',
+            })
+            
+            response = self.session.get(self.SITEMAP_URL, headers=headers, timeout=30)
+            
+            if response.status_code == 403:
+                self.logger.warning("Sitemap returned 403, trying alternative category discovery...")
+                return self._fetch_categories_alternative()
+            
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'xml')
@@ -323,7 +438,42 @@ class AHScraper(BaseScraper):
             
         except Exception as e:
             self.logger.error(f"Failed to fetch categories: {e}")
-            return []
+            self.logger.info("Trying alternative category discovery method...")
+            return self._fetch_categories_alternative()
+
+    def _fetch_categories_alternative(self) -> List[Dict[str, Any]]:
+        """Alternative method to fetch categories using hardcoded list of main categories"""
+        self.logger.info("Using hardcoded category list as fallback")
+        
+        # Common AH category taxonomy IDs and names (update these periodically)
+        hardcoded_categories = [
+            {'taxonomy_id': '6401', 'slug': 'groente-aardappelen', 'name': 'Groente Aardappelen'},
+            {'taxonomy_id': '6402', 'slug': 'fruit-verse-sappen', 'name': 'Fruit Verse Sappen'},
+            {'taxonomy_id': '6403', 'slug': 'vlees-kip-vis-vega', 'name': 'Vlees Kip Vis Vega'},
+            {'taxonomy_id': '6404', 'slug': 'kaas-vleeswaren-delicatessen', 'name': 'Kaas Vleeswaren Delicatessen'},
+            {'taxonomy_id': '6405', 'slug': 'zuivel-eieren', 'name': 'Zuivel Eieren'},
+            {'taxonomy_id': '6406', 'slug': 'bakkerij-banket', 'name': 'Bakkerij Banket'},
+            {'taxonomy_id': '6407', 'slug': 'diepvries', 'name': 'Diepvries'},
+            {'taxonomy_id': '6408', 'slug': 'frisdrank-sappen-koffie-thee', 'name': 'Frisdrank Sappen Koffie Thee'},
+            {'taxonomy_id': '6409', 'slug': 'pasta-rijst-wereldkeuken', 'name': 'Pasta Rijst Wereldkeuken'},
+            {'taxonomy_id': '6410', 'slug': 'soepen-sauzen-kruiden', 'name': 'Soepen Sauzen Kruiden'},
+            {'taxonomy_id': '6411', 'slug': 'snoep-koek-chips', 'name': 'Snoep Koek Chips'},
+            {'taxonomy_id': '6412', 'slug': 'ontbijtgranen-beleg', 'name': 'Ontbijtgranen Beleg'},
+            {'taxonomy_id': '6413', 'slug': 'baby-verzorging', 'name': 'Baby Verzorging'},
+            {'taxonomy_id': '6414', 'slug': 'bewuste-voeding', 'name': 'Bewuste Voeding'},
+        ]
+        
+        categories = []
+        for cat in hardcoded_categories:
+            categories.append({
+                'taxonomy_id': cat['taxonomy_id'],
+                'slug': cat['slug'],
+                'name': cat['name'],
+                'url': f"{self.BASE_URL}/producten/{cat['taxonomy_id']}/{cat['slug']}"
+            })
+        
+        self.logger.info(f"Loaded {len(categories)} hardcoded categories")
+        return categories
 
     def _extract_category_info(self, category_url: str) -> Optional[Dict[str, Any]]:
         """Extract category information and taxonomy ID"""
