@@ -44,18 +44,18 @@ class AHScraper(BaseScraper):
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9,nl;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
             'Referer': 'https://www.ah.nl/producten',
-            'Origin': 'https://www.ah.nl',
             'DNT': '1',
             'Connection': 'keep-alive',
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'same-origin',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="143", "Google Chrome";v="143"',
+            'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not-A.Brand";v="99"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
+            'Priority': 'u=1, i',
         })
 
     def scrape_products(self) -> List[Product]:
@@ -97,9 +97,15 @@ class AHScraper(BaseScraper):
             # Setup Chrome options to better mimic real browser
             chrome_options = Options()
             
-            # Try non-headless mode for better success (comment out for production)
-            # chrome_options.add_argument('--headless=new')  # Use new headless mode
-            self.logger.warning("Running in NON-HEADLESS mode for better success rate. Browser window will be visible.")
+            # Auto-detect if we need headless mode (e.g., on servers without display)
+            import os
+            need_headless = os.environ.get('DISPLAY') is None or os.environ.get('AH_HEADLESS', 'false').lower() == 'true'
+            
+            if need_headless:
+                self.logger.info("Running in HEADLESS mode (no display detected or AH_HEADLESS=true)")
+                chrome_options.add_argument('--headless=new')  # Use new headless mode
+            else:
+                self.logger.warning("Running in NON-HEADLESS mode for better success rate. Browser window will be visible.")
             
             chrome_options.add_argument('--no-sandbox')
             chrome_options.add_argument('--disable-dev-shm-usage')
@@ -201,11 +207,33 @@ class AHScraper(BaseScraper):
             
             # Visit products page to ensure full session
             self.driver.get(f"{self.BASE_URL}/producten")
-            time.sleep(5)  # Wait for page to fully load and JS to execute
+            time.sleep(8)  # Wait longer for page to fully load and JS to execute
             
             # Scroll page to trigger any lazy loading or tracking
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+            time.sleep(3)
+            self.driver.execute_script("window.scrollTo(0, 0);")
             time.sleep(2)
+            
+            # Wait for potential API calls to complete
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    lambda d: d.execute_script('return document.readyState') == 'complete'
+                )
+            except:
+                pass
+            
+            # Try to trigger the search API by opening network tab or making a search
+            # This helps establish proper API session
+            try:
+                self.driver.execute_script("""
+                    // Trigger any analytics or tracking that might be needed
+                    if (window.dataLayer) {
+                        console.log('DataLayer present');
+                    }
+                """)
+            except:
+                pass
             
             # Extract cookies from Selenium and add to requests session
             selenium_cookies = self.driver.get_cookies()
@@ -217,29 +245,43 @@ class AHScraper(BaseScraper):
             # Clear existing cookies first
             self.session.cookies.clear()
             
+            # Transfer all cookies including httpOnly ones
+            cookie_count = 0
             for cookie in selenium_cookies:
-                self.session.cookies.set(
-                    cookie['name'], 
-                    cookie['value'], 
-                    domain=cookie.get('domain', '.ah.nl'),
-                    path=cookie.get('path', '/'),
-                    secure=cookie.get('secure', False)
-                )
+                try:
+                    # Set cookie with all available attributes
+                    self.session.cookies.set(
+                        cookie['name'], 
+                        cookie['value'], 
+                        domain=cookie.get('domain', '.ah.nl'),
+                        path=cookie.get('path', '/'),
+                        secure=cookie.get('secure', False)
+                    )
+                    cookie_count += 1
+                except Exception as e:
+                    self.logger.warning(f"Failed to transfer cookie {cookie.get('name')}: {e}")
             
-            self.logger.info(f"Transferred {len(selenium_cookies)} cookies from Selenium to requests")
+            self.logger.info(f"Transferred {cookie_count} cookies from Selenium to requests")
             
             # Log all cookies for debugging
             if selenium_cookies:
                 cookie_names = [c['name'] for c in selenium_cookies]
-                self.logger.debug(f"Cookie names: {', '.join(cookie_names)}")
+                self.logger.info(f"Cookie names: {', '.join(cookie_names)}")
             
             # Log key cookies for debugging
-            important_cookies = ['anonymous-consents', 'OptanonConsent', 'OptanonAlertBoxClosed', 'ah-session']
+            important_cookies = ['anonymous-consents', 'OptanonConsent', 'OptanonAlertBoxClosed', 'ah-session', 'JSESSIONID']
+            found_cookies = []
+            missing_cookies = []
             for cookie_name in important_cookies:
                 if cookie_name in self.session.cookies:
-                    self.logger.debug(f"Found important cookie: {cookie_name}")
+                    found_cookies.append(cookie_name)
                 else:
-                    self.logger.debug(f"Missing cookie: {cookie_name}")
+                    missing_cookies.append(cookie_name)
+            
+            if found_cookies:
+                self.logger.info(f"Found important cookies: {', '.join(found_cookies)}")
+            if missing_cookies:
+                self.logger.warning(f"Missing cookies: {', '.join(missing_cookies)}")
                 
             
             self.cookies_initialized = True
@@ -340,8 +382,11 @@ class AHScraper(BaseScraper):
         category_url = category.get('url', f"{self.BASE_URL}/producten")
         self.session.headers.update({
             'Referer': category_url,
-            'Content-Type': 'application/json',
         })
+        
+        # Remove Content-Type header for GET requests - browsers don't send it
+        if 'Content-Type' in self.session.headers:
+            del self.session.headers['Content-Type']
         
         while True:
             try:
@@ -357,16 +402,25 @@ class AHScraper(BaseScraper):
                 # Handle different response codes
                 if response.status_code == 403:
                     self.logger.error(f"403 Forbidden - cookies may have expired or API access denied")
-                    self.logger.debug(f"Response headers: {dict(response.headers)}")
-                    self.logger.debug(f"Request headers: {dict(self.session.headers)}")
+                    self.logger.error(f"Response headers: {dict(response.headers)}")
+                    self.logger.error(f"Request URL: {api_url}")
                     
-                    # Try to reinitialize cookies once
-                    if not hasattr(self, '_reinit_attempted'):
+                    # Log current cookies
+                    current_cookies = {k: v for k, v in self.session.cookies.items()}
+                    self.logger.error(f"Current cookies: {list(current_cookies.keys())}")
+                    
+                    # Try to reinitialize cookies once per category
+                    reinit_key = f'_reinit_attempted_{category["taxonomy_id"]}'
+                    if not hasattr(self, reinit_key):
                         self.logger.info("Attempting to reinitialize cookies...")
-                        self._reinit_attempted = True
+                        setattr(self, reinit_key, True)
                         if self._initialize_cookies():
                             self.logger.info("Cookies reinitialized, retrying request...")
+                            # Reset page to 1 after reinit
+                            page = 1
                             continue
+                    
+                    self.logger.error("Skipping category due to persistent 403 errors")
                     break
                 elif response.status_code == 429:
                     self.logger.warning(f"Rate limited, waiting 5 seconds...")
