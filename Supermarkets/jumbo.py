@@ -14,6 +14,7 @@ from database import DatabaseManager, Product, PriceCalculator, UnitType
 from datetime import datetime
 import time
 import logging
+import random
 
 
 class JumboScraper(BaseScraper):
@@ -24,43 +25,36 @@ class JumboScraper(BaseScraper):
         self.base_url = "https://www.jumbo.com/api"
         self.graphql_url = f"{self.base_url}/graphql"
         
-        # Headers for API requests
+        # Headers for API requests - updated for better compatibility
         self.headers = {
             'accept': '*/*',
-            'accept-language': 'en-US,en;q=0.6',
+            'accept-language': 'nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7',
             'apollographql-client-name': 'JUMBO_WEB-search',
             'apollographql-client-version': 'master-v17.1.0-web',
             'content-type': 'application/json',
             'origin': 'https://www.jumbo.com',
             'priority': 'u=1, i',
-            'referer': 'https://www.jumbo.com/producten/?offSet=24',
-            'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Brave";v="138"',
+            'referer': 'https://www.jumbo.com/producten/',
+            'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
             'sec-fetch-dest': 'empty',
             'sec-fetch-mode': 'cors',
             'sec-fetch-site': 'same-origin',
-            'sec-gpc': '1',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             'x-source': 'JUMBO_WEB-search'
         }
         
         # Cookies for session (these may need periodic updates)
+        # Note: Many of these cookies are optional for API access
         self.cookies = {
             'country': 'NL',
-            'AKA_A2': 'A',
-            'akaas_as': '2147483647~rv=69~id=07661a79d369db894b41d018f17845bb~rn=',
-            'SSLB': '1',
-            'SSSC_2rnq': '1003.G7533186252926324986.1|88709.2772980:88734.2773386:89112.2783663:90721.2817433',
             'i18n_redirected': 'nl-NL',
-            'fep_jodpuid': 'J706874165-1753956607',
-            'fep_jodpsid': '101173757-1753958407118',
-            'sid': 'agE-XNxqyMQpXLThKwFF779gYZhNvNfzGeGTZjva',
-            'pgid-Jumbo-Grocery-Site': 'DYql6yV1CQ1SRpUuB1PyiAht0000fO5Hx7O8',
-            'user-session': '89a91f70-6df6-11f0-8038-b18c11edbef5'
         }
         
         self.page_size = 200  # Optimal page size - API max limit appears to be 200
+        self.max_retries = 3  # Maximum number of retry attempts
+        self.base_retry_delay = 5  # Base delay between retries in seconds
     
     def create_search_payload(self, offset=0, limit=None):
         """Create GraphQL payload for product search"""
@@ -220,32 +214,61 @@ class JumboScraper(BaseScraper):
         }
     
     def fetch_page(self, offset=0, limit=None):
-        """Fetch a single page of products"""
-        try:
-            payload = self.create_search_payload(offset=offset, limit=limit)
-            
-            response = self.session.post(
-                self.graphql_url,
-                headers=self.headers,
-                cookies=self.cookies,
-                json=payload,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if 'data' in data and data['data'] and 'searchProducts' in data['data']:
-                    return data['data']['searchProducts']
-                else:
-                    print(f"Unexpected response structure or null data: {data}")
-                    return None
-            else:
-                print(f"HTTP {response.status_code}: {response.text}")
-                return None
+        """Fetch a single page of products with retry logic"""
+        payload = self.create_search_payload(offset=offset, limit=limit)
+        
+        for attempt in range(self.max_retries):
+            try:
+                self.logger.debug(f"Attempt {attempt + 1}/{self.max_retries} for offset {offset}")
                 
-        except Exception as e:
-            self.logger.error(f"Error fetching page at offset {offset}: {e}")
-            return None
+                response = self.session.post(
+                    self.graphql_url,
+                    headers=self.headers,
+                    cookies=self.cookies,
+                    json=payload,
+                    timeout=60  # Increased timeout to 60 seconds
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'data' in data and data['data'] and 'searchProducts' in data['data']:
+                        self.logger.info(f"Successfully fetched data at offset {offset}")
+                        return data['data']['searchProducts']
+                    else:
+                        self.logger.warning(f"Unexpected response structure at offset {offset}: {data}")
+                        return None
+                        
+                elif response.status_code == 429:  # Too Many Requests
+                    retry_after = int(response.headers.get('Retry-After', self.base_retry_delay * 2))
+                    self.logger.warning(f"Rate limited (429). Waiting {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+                    
+                elif response.status_code >= 500:  # Server errors
+                    self.logger.warning(f"Server error {response.status_code} at offset {offset}. Will retry...")
+                    if attempt < self.max_retries - 1:
+                        delay = self.base_retry_delay * (2 ** attempt) + random.uniform(0, 1)
+                        self.logger.info(f"Waiting {delay:.1f} seconds before retry...")
+                        time.sleep(delay)
+                        continue
+                        
+                else:
+                    self.logger.error(f"HTTP {response.status_code} at offset {offset}: {response.text[:200]}")
+                    return None
+                    
+            except Exception as e:
+                self.logger.error(f"Error fetching page at offset {offset} (attempt {attempt + 1}/{self.max_retries}): {e}")
+                
+                if attempt < self.max_retries - 1:
+                    # Exponential backoff with jitter
+                    delay = self.base_retry_delay * (2 ** attempt) + random.uniform(0, 2)
+                    self.logger.info(f"Retrying after {delay:.1f} seconds...")
+                    time.sleep(delay)
+                else:
+                    self.logger.error(f"All retry attempts exhausted for offset {offset}")
+                    return None
+        
+        return None
     
     def parse_product(self, product_data):
         """Parse individual product data into Product object"""
@@ -508,8 +531,10 @@ class JumboScraper(BaseScraper):
                 self.logger.info(f"Reached end of products (offset {offset} >= total {total_count})")
                 break
             
-            # Rate limiting to be respectful
-            time.sleep(0.1)
+            # Rate limiting to be respectful - random delay between 0.5 and 2 seconds
+            delay = random.uniform(0.5, 2.0)
+            self.logger.debug(f"Waiting {delay:.1f} seconds before next request...")
+            time.sleep(delay)
         
         self.logger.info(f"Scraping completed. Total products: {len(all_products)}")
         return all_products
