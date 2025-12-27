@@ -1,0 +1,68 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Supermarket scraper specific
+Supermarkets/__pycache__/
+Supermarkets/offers/__pycache__/
+api/__pycache__/
+Supermarkets/downloaded_files/driver_fixing.lock
+Supermarkets/downloaded_files/pyautogui.lock
+downloaded_files/pyautogui.lock
+downloaded_files/driver_fixing.lock
+__pycache__/dirk.cpython-311.pyc
+__pycache__/database.cpython-313.pyc
+__pycache__/database.cpython-311.pyc
+__pycache__/base_scraper.cpython-313.pyc
+__pycache__/base_scraper.cpython-311.pyc
+__pycache__/ah_new.cpython-313.pyc
+__pycache__/ah_new.cpython-311.pyc
+scraper.log
+.env
+Supermarkets/__pycache__/hoogvliet.cpython-311.pyc
+__pycache__/run_scrapers.cpython-311.pyc
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs directory
+logs/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,74 @@
+{
+  "promotion_list_payload": {
+    "versionInfo": {
+      "moduleVersion": "psruvuKr2nJSezactn0cLw",
+      "apiVersion": "eynwGehUh7DY1+Mg0udXDw"
+    },
+    "viewName": "MainFlow.Promotions",
+    "screenData": {
+      "variables": {
+        "IsShowData": false,
+        "StoreNumber": 0,
+        "StoreChannel": "",
+        "CheckoutId": "077057a3-135b-4864-8435-2309f1f272a1",
+        "IsOrderEditMode": false,
+        "PromotionPeriodId": 1,
+        "HideDummy": true,
+        "IsDesktop": true,
+        "_isDesktopInDataFetchStatus": 1,
+        "IsTablet": false,
+        "_isTabletInDataFetchStatus": 1,
+        "IsPhone": false,
+        "_isPhoneInDataFetchStatus": 1,
+        "OneWelcomeUserId": "",
+        "_oneWelcomeUserIdInDataFetchStatus": 1,
+        "IsCustomerUnderAge": false,
+        "_isCustomerUnderAgeInDataFetchStatus": 1,
+        "UserStoreId": "0",
+        "_userStoreIdInDataFetchStatus": 1,
+        "ItemsInCartJSON": "[]",
+        "_itemsInCartJSONInDataFetchStatus": 1,
+        "IsTimetraveler": false,
+        "_isTimetravelerInDataFetchStatus": 1
+      }
+    }
+  },
+  "promotion_details_payload": {
+    "versionInfo": {
+      "moduleVersion": "psruvuKr2nJSezactn0cLw",
+      "apiVersion": "6QT_dP+vUFkEVZzYv7PDUQ"
+    },
+    "viewName": "MainFlow.Promotions",
+    "screenData": {
+      "variables": {
+        "CheckoutId": "077057a3-135b-4864-8435-2309f1f272a1",
+        "IsOrderEditMode": false,
+        "OrderEditId": "",
+        "StoreChannelD": "",
+        "LineItemRecList": {
+          "List": [],
+          "EmptyListItem": {
+            "LineItemId": "",
+            "SKU": "",
+            "Quantity": 0
+          }
+        },
+        "StoreNumber": 0,
+        "PromotionOfferId": "{PROMOTION_ID}",
+        "_promotionOfferIdInDataFetchStatus": 1,
+        "OneWelcomeUserId": "",
+        "_oneWelcomeUserIdInDataFetchStatus": 1,
+        "IsDesktop": true,
+        "_isDesktopInDataFetchStatus": 1,
+        "IsTablet": false,
+        "_isTabletInDataFetchStatus": 1,
+        "IsPhone": false,
+        "_isPhoneInDataFetchStatus": 1,
+        "IsCustomerUnderAge": false,
+        "_isCustomerUnderAgeInDataFetchStatus": 1,
+        "IsTimetraveler": false,
+        "_isTimetravelerInDataFetchStatus": 1
+      }
+    }
+  }
+}

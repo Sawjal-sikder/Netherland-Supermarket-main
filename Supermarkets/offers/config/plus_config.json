@@ -1,0 +1,48 @@
+{
+  "base_url": "https://www.plus.nl",
+  "endpoints": {
+    "promotion_list": "/screenservices/ECP_Composition_CW/Promotions/Promotion_LP_Content_TF/DataActionGetPromotionList",
+    "promotion_details": "/screenservices/ECP_Promotion_CW/PromotionDetailsFlow/PromotionOffer_DP_Content/DataActionPromotionOfferDetail_Get",
+    "offers_page": "/aanbiedingen"
+  },
+  "headers": {
+    "accept": "application/json",
+    "accept-language": "en-US,en;q=0.7",
+    "content-type": "application/json; charset=UTF-8",
+    "origin": "https://www.plus.nl",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+    "x-csrftoken": "T6C+9iB49TLra4jEsMeSckDMNhQ="
+  },
+  "fallback_cookies": {
+    "visid_incap_1876175": "HGYxD0dIRomR25kEqCpI2T6ykWgAAAAAQUIPAAAAAAC1WvZD3fJdLdXhT7FPhXOW",
+    "SSLB": "1",
+    "osVisitor": "c92e5a58-9f74-4f2a-b06d-49cf0c27352c",
+    "nr1Users": "lid%3dAnonymous%3btuu%3d0%3bexp%3d0%3brhs%3dXBC1ss1nOgYW1SmqUjSxLucVOAg%3d%3bhmc%3d4DwFYjtQmhXgYB3zdBmXn5G3zBA%3d",
+    "nr2Users": "crf%3dT6C%2b9iB49TLra4jEsMeSckDMNhQ%3d%3buid%3d0%3bunm%3d",
+    "incap_ses_1559_1876175": "maQgU/bMHHmBzAUMna6iFblRsmgAAAAAa4Nh3DquOehMSApbeWmkfQ==",
+    "SSID_WA9S": "CQAflh0OAAAAAACVspFoSqzCJ5WykWgCAAAAAADBGlRszVGyaAD0DJBOAQNuJCkAlbKRaAIA",
+    "SSSC_WA9S": "1036.G7535000005254491210.2|85648.2696302",
+    "nlbi_1876175": "fdrEBPDs8DqjC+Rt+vsR5gAAAAACSLT0mD22ROee36wOu9SG",
+    "incap_ses_1687_1876175": "UOY5cWv6JE/spr4t7W1pF8xRsmgAAAAAzmjPab9TMli99L5ORdOcUA==",
+    "osVisit": "4102ca5e-625b-4c9b-a5fc-fcbc088b0a01",
+    "baked": "2023-05-12 14:20:05",
+    "plus_cookie_level": "3",
+    "incap_ses_1689_1876175": "4X/5LVJ4eA4NOYzI7IhwF7pVsmgAAAAAnVxp0+BmNbDqnJ+zU+W6uw==",
+    "SSRT_WA9S": "QFeyaAADAA"
+  },
+  "selenium_options": [
+    "--headless",
+    "--no-sandbox", 
+    "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+    "--disable-extensions",
+    "--window-size=1920,1080",
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  ],
+  "timeouts": {
+    "api_request": 30,
+    "page_load": 20,
+    "selenium_wait": 3,
+    "between_requests": 0.5
+  }
+}

@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+lxml
+mysql-connector-python
+python-dotenv
+selenium
+webdriver-manager
